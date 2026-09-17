@@ -184,5 +184,7 @@ func CABundleEnv(caFile string) []string {
 		"CURL_CA_BUNDLE=" + caFile,
 		"REQUESTS_CA_BUNDLE=" + caFile,
 		"NODE_EXTRA_CA_CERTS=" + caFile,
+		// git ignores SSL_CERT_FILE; without this, push/fetch fail MITM verify.
+		"GIT_SSL_CAINFO=" + caFile,
 	}
 }

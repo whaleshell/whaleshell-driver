@@ -79,6 +79,22 @@ func New() (*Driver, error) {
 	return &Driver{cli: cli}, nil
 }
 
+// HostGatewayExtraHosts maps OpenShell-style host-gateway aliases into containers.
+// Canonical callback is host.osg.internal (cf. host.openshell.internal). On Linux,
+// host.docker.internal is also mapped so Desktop/Linux compose parity holds —
+// same pair OpenShell documents under extra_hosts.
+func HostGatewayExtraHosts() []string {
+	return []string{
+		"host.osg.internal:host-gateway",
+		"host.docker.internal:host-gateway",
+	}
+}
+
+// ProxyExtraHosts is an alias of HostGatewayExtraHosts for the egress sidecar.
+func ProxyExtraHosts() []string {
+	return HostGatewayExtraHosts()
+}
+
 // NewFromClient wraps an existing client (tests).
 func NewFromClient(cli *client.Client) *Driver {
 	return &Driver{cli: cli}
@@ -1126,14 +1142,11 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 			nat.Port(fmt.Sprintf("%d/tcp", port)): {},
 		},
 	}
-	// host.osg.internal → host gateway (Docker Desktop / Linux). Needed so the
-	// sidecar can ResolveSecrets from osg-gateway on the host.
+	// OpenShell-style: host.osg.internal → host-gateway so the sidecar can
+	// ResolveSecrets from osg-gateway on the host (no runtime hostname fallback).
 	host := &container.HostConfig{
-		Binds: binds,
-		ExtraHosts: []string{
-			"host.osg.internal:host-gateway",
-			"host.docker.internal:host-gateway",
-		},
+		Binds:      binds,
+		ExtraHosts: HostGatewayExtraHosts(),
 	}
 	networking := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
