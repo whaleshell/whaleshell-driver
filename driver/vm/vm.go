@@ -17,7 +17,7 @@ type Driver struct{}
 func New() *Driver { return &Driver{} }
 
 func stub(op string) error {
-	return fmt.Errorf("vm driver: %s not implemented — see docs/MICROVM.md", op)
+	return fmt.Errorf("vm driver: %s not implemented — see docs/exp/MICROVM.md", op)
 }
 
 func (d *Driver) Create(context.Context, driver.Spec) (driver.Handle, error) {

@@ -17,7 +17,7 @@ type Driver struct{}
 func New() *Driver { return &Driver{} }
 
 func stub(op string) error {
-	return fmt.Errorf("kubernetes driver: %s not implemented — see docs/KUBERNETES.md", op)
+	return fmt.Errorf("kubernetes driver: %s not implemented — see docs/exp/KUBERNETES.md", op)
 }
 
 func (d *Driver) Create(context.Context, driver.Spec) (driver.Handle, error) {

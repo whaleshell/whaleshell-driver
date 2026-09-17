@@ -323,7 +323,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		}
 		_ = d.cli.NetworkRemove(ctx, netName)
 		if len(host.DeviceRequests) > 0 {
-			return driver.Handle{}, fmt.Errorf("docker create %s: %w\nhint: enable NVIDIA CDI / Container Toolkit, or unset --gpu (see docs/GPU.md)", ctrName, err)
+			return driver.Handle{}, fmt.Errorf("docker create %s: %w\nhint: enable NVIDIA CDI / Container Toolkit, or unset --gpu (see docs/exp/GPU.md)", ctrName, err)
 		}
 		return driver.Handle{}, fmt.Errorf("docker create %s: %w", ctrName, err)
 	}
@@ -1057,7 +1057,6 @@ func (d *Driver) EnsureSSHDaemon(ctx context.Context, id core.ID, authorizedKey 
 	})
 	return err
 }
-
 
 func (d *Driver) ensureNetwork(ctx context.Context, netName, sandboxName string, internal bool) error {
 	_, err := d.cli.NetworkInspect(ctx, netName, network.InspectOptions{})
