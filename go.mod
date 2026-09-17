@@ -6,7 +6,7 @@ require (
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/docker/go-units v0.5.0
-	github.com/zorneth/osg-core v0.0.0
+	github.com/zorneth/osg-core v0.1.0-alpha.1
 	golang.org/x/term v0.46.0
 )
 
