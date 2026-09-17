@@ -51,13 +51,40 @@ func needsLinuxRebuild(out, moduleDir string) bool {
 	if err != nil || st.Size() == 0 {
 		return true
 	}
+	outTime := st.ModTime()
 	for _, name := range []string{"go.mod", "go.sum"} {
 		mod := filepath.Join(moduleDir, name)
-		if ms, err := os.Stat(mod); err == nil && ms.ModTime().After(st.ModTime()) {
+		if ms, err := os.Stat(mod); err == nil && ms.ModTime().After(outTime) {
 			return true
 		}
 	}
-	return false
+	// Rebuild when CLI sources change (cached linux binary otherwise stays stale).
+	newer := false
+	_ = filepath.WalkDir(moduleDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || newer {
+			return err
+		}
+		if d.IsDir() {
+			base := d.Name()
+			if base == "vendor" || base == ".git" || base == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.ModTime().After(outTime) {
+			newer = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return newer
 }
 
 // EnsureLinuxInit builds (if needed) a linux/$GOARCH osg-init for guest harden.

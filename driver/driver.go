@@ -54,6 +54,18 @@ type Spec struct {
 	GPU        bool
 	GPUCount   int      // reserved; CDI list takes precedence in MVP
 	CDIDevices []string // e.g. nvidia.com/gpu=0
+
+	CPU          float64 // NanoCPUs = CPU * 1e9 when > 0
+	MemoryBytes  int64   // Docker Memory limit when > 0
+	PublishPorts []PortPublish
+	// DriverConfigJSON is opaque driver-specific JSON (recorded as label; Docker ignores for now).
+	DriverConfigJSON string
+}
+
+// PortPublish maps a host loopback port to a guest container port.
+type PortPublish struct {
+	Host  int
+	Guest int
 }
 
 // Handle is a live sandbox reference.
@@ -75,9 +87,10 @@ type Info struct {
 
 // ExecRequest is a one-shot or PTY-backed command.
 type ExecRequest struct {
-	Argv []string
-	TTY  bool
-	Env  []string
+	Argv    []string
+	TTY     bool
+	Env     []string
+	WorkDir string // empty → driver default (/workspace)
 }
 
 // ExecResult carries exit status.

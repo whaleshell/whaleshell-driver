@@ -1,4 +1,8 @@
-// Package mounts validates host bind mounts for sandboxes (deny-list).
+// Package mounts validates host bind mounts and guest mount targets.
+//
+// Host workspace sources use a deny-list (DenyBasenames / $HOME) unless --i-know.
+// Guest targets use OpenShell-style reserved roots (ControlRoots) so users cannot
+// overwrite /osg control state — not a general Linux system-path denylist.
 package mounts
 
 import (
@@ -12,6 +16,8 @@ import (
 const WorkdirInContainer = "/workspace"
 
 // DenyBasenames are never auto-mounted as workspace (secrets / cloud CLIs).
+// OpenShell relies more on --upload; osg still bind-mounts workspace, so this
+// host-side check remains as hardening.
 var DenyBasenames = []string{
 	".ssh", ".aws", ".gnupg", ".kube", ".docker", ".config",
 	".cursor", ".codex", ".claude",
@@ -48,7 +54,7 @@ func checkDeny(abs string) error {
 	abs = filepath.Clean(abs)
 
 	if home != "" && abs == home {
-		return fmt.Errorf("workspace: refusing to mount $HOME (%s); use a project dir or --i-know", abs)
+		return fmt.Errorf("workspace: refusing to mount $HOME (%s); use a project dir, --upload, or --i-know", abs)
 	}
 	base := filepath.Base(abs)
 	for _, d := range DenyBasenames {

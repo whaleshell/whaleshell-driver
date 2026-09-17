@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+	"github.com/docker/go-units"
 	"golang.org/x/term"
 
 	"archive/tar"
@@ -161,6 +162,9 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		}
 		labels[k] = v
 	}
+	if j := strings.TrimSpace(spec.DriverConfigJSON); j != "" {
+		labels["osg.driver-config-json"] = j
+	}
 	if spec.PersistVolume {
 		volName := "osg-data-" + name
 		if err := d.ensureVolume(ctx, volName); err != nil {
@@ -290,6 +294,23 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 			HostPort: "0", // docker allocates
 		}}
 	}
+	for _, pub := range spec.PublishPorts {
+		if pub.Guest <= 0 || pub.Host <= 0 {
+			continue
+		}
+		p := nat.Port(fmt.Sprintf("%d/tcp", pub.Guest))
+		cfg.ExposedPorts[p] = struct{}{}
+		host.PortBindings[p] = []nat.PortBinding{{
+			HostIP:   "127.0.0.1",
+			HostPort: strconv.Itoa(pub.Host),
+		}}
+	}
+	if spec.CPU > 0 {
+		host.NanoCPUs = int64(spec.CPU * 1e9)
+	}
+	if spec.MemoryBytes > 0 {
+		host.Memory = spec.MemoryBytes
+	}
 	networking := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			netName: {},
@@ -390,6 +411,9 @@ func (d *Driver) Exec(ctx context.Context, id core.ID, req driver.ExecRequest) (
 	}
 	argv := req.Argv
 	workdir := mounts.WorkdirInContainer
+	if strings.TrimSpace(req.WorkDir) != "" {
+		workdir = strings.TrimSpace(req.WorkDir)
+	}
 	var containerEnv []string
 	if info, err := d.cli.ContainerInspect(ctx, string(id)); err == nil && info.Config != nil {
 		containerEnv = append([]string{}, info.Config.Env...)
@@ -661,6 +685,38 @@ func (d *Driver) Inspect(ctx context.Context, nameOrID string) (driver.Info, err
 		}, nil
 	}
 	return driver.Info{}, fmt.Errorf("docker inspect: sandbox %q not found", nameOrID)
+}
+
+// ContainerIP returns the sandbox container IP on its osg network.
+func (d *Driver) ContainerIP(ctx context.Context, containerID, networkName string) (string, error) {
+	if d == nil || d.cli == nil {
+		return "", fmt.Errorf("docker driver: client not initialized")
+	}
+	c, err := d.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return "", err
+	}
+	if networkName == "" && c.Config != nil {
+		networkName = c.Config.Labels[labelNetwork]
+	}
+	if networkName != "" && c.NetworkSettings != nil {
+		if n, ok := c.NetworkSettings.Networks[networkName]; ok && n.IPAddress != "" {
+			return n.IPAddress, nil
+		}
+	}
+	if c.NetworkSettings != nil {
+		for _, n := range c.NetworkSettings.Networks {
+			if n.IPAddress != "" {
+				return n.IPAddress, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("docker: no IP for container on network %q", networkName)
+}
+
+// ParseMemoryBytes parses Docker-style memory strings (512m, 4g, …).
+func ParseMemoryBytes(s string) (int64, error) {
+	return units.RAMInBytes(s)
 }
 
 // Logs streams stdout/stderr from the sandbox container and, when present, the
@@ -1071,7 +1127,15 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 			nat.Port(fmt.Sprintf("%d/tcp", port)): {},
 		},
 	}
-	host := &container.HostConfig{Binds: binds}
+	// host.osg.internal → host gateway (Docker Desktop / Linux). Needed so the
+	// sidecar can ResolveSecrets from osg-gateway on the host.
+	host := &container.HostConfig{
+		Binds: binds,
+		ExtraHosts: []string{
+			"host.osg.internal:host-gateway",
+			"host.docker.internal:host-gateway",
+		},
+	}
 	networking := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			netName: {Aliases: []string{"osg-proxy", ctrName}},
@@ -1197,6 +1261,15 @@ func mergeEnv(base, extra []string) []string {
 		add(e)
 	}
 	return out
+}
+
+// ImagePresent reports whether ref exists locally (no pull).
+func (d *Driver) ImagePresent(ctx context.Context, ref string) bool {
+	if d == nil || d.cli == nil || strings.TrimSpace(ref) == "" {
+		return false
+	}
+	_, _, err := d.cli.ImageInspectWithRaw(ctx, ref)
+	return err == nil
 }
 
 func (d *Driver) ensureImage(ctx context.Context, ref string) error {
