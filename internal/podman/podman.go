@@ -1,5 +1,5 @@
 // Package podman discovers a rootless/rootful Podman API socket and speaks
-// the Docker-compatible Engine API (same client as driver/docker).
+// the Docker-compatible Engine API (same client as internal/docker).
 package podman
 
 import (
@@ -15,7 +15,7 @@ import (
 
 	"github.com/docker/docker/client"
 
-	"github.com/whaleshell/whaleshell-driver/driver/docker"
+	"github.com/whaleshell/whaleshell-driver/internal/docker"
 )
 
 // New returns a compute driver pointed at Podman.

@@ -45,12 +45,15 @@ go get github.com/whaleshell/whaleshell-driver@latest
 ## Quick Start
 
 ```go
-import dockerdriver "github.com/whaleshell/whaleshell-driver/driver/docker"
+import (
+    "github.com/whaleshell/whaleshell-driver/driver"
+    _ "github.com/whaleshell/whaleshell-driver/driver/all" // register backends
+)
 
-d, err := dockerdriver.New()
+d, err := driver.OpenEngine("docker")
 _ = d
 _ = err
-hosts := dockerdriver.HostGatewayExtraHosts()
+hosts := driver.HostGatewayExtraHosts()
 // []string{"host.whaleshell.internal:host-gateway", "host.docker.internal:host-gateway"}
 _ = hosts
 ```
@@ -61,10 +64,13 @@ _ = hosts
 
 | Path | Purpose |
 |------|---------|
-| `driver/` | Driver interface + stubs |
-| `driver/docker/` | Docker Engine implementation |
-| `mounts/` | Bind-mount policy |
-| `sidecar/` | CA / env helpers for the proxy sidecar |
+| `driver/` | Public API: `ComputeDriver`, `Engine`, `Open` / `OpenEngine`, helpers |
+| `driver/all/` | Blank-import to register backends |
+| `internal/docker/` | Docker Engine implementation |
+| `internal/podman/` | Podman socket discovery → Docker API client |
+| `internal/vm/`, `internal/kubernetes/` | Stub drivers |
+| `internal/mounts/` | Bind-mount policy |
+| `internal/sidecar/` | CA / env helpers for the proxy sidecar |
 
 
 ---

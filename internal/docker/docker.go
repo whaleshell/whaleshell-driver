@@ -32,8 +32,8 @@ import (
 	"github.com/whaleshell/whaleshell-core"
 	"github.com/whaleshell/whaleshell-core/defaults"
 	"github.com/whaleshell/whaleshell-driver/driver"
-	"github.com/whaleshell/whaleshell-driver/mounts"
-	"github.com/whaleshell/whaleshell-driver/sidecar"
+	"github.com/whaleshell/whaleshell-driver/internal/mounts"
+	"github.com/whaleshell/whaleshell-driver/internal/sidecar"
 )
 
 const (
@@ -82,10 +82,7 @@ func New() (*Driver, error) {
 // host.docker.internal is also mapped so Desktop/Linux compose parity holds —
 // same pair OpenShell documents under extra_hosts.
 func HostGatewayExtraHosts() []string {
-	return []string{
-		"host.whaleshell.internal:host-gateway",
-		"host.docker.internal:host-gateway",
-	}
+	return driver.HostGatewayExtraHosts()
 }
 
 // ProxyExtraHosts is an alias of HostGatewayExtraHosts for the egress sidecar.
@@ -1434,22 +1431,9 @@ func summarizeProbeJSON(raw string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(raw, "\n", " "), "  ", " ")
 }
 
-// Probe is a host-side Docker readiness report for `whaleshell health`.
-type Probe struct {
-	OK              bool
-	ServerVersion   string
-	APIVersion      string
-	OperatingSystem string
-	Architecture    string
-	Context         string
-	Isolation       string
-	HostGOOS        string
-	Error           string
-}
-
 // Health probes the daemon (Ping + ServerVersion + Info).
-func (d *Driver) Health(ctx context.Context) Probe {
-	p := Probe{
+func (d *Driver) Health(ctx context.Context) driver.Probe {
+	p := driver.Probe{
 		Context:  dockerContextName(),
 		HostGOOS: runtime.GOOS,
 	}
