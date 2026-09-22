@@ -6,13 +6,13 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 
-	"github.com/zorneth/osg-core/defaults"
-	"github.com/zorneth/osg-driver/driver"
+	"github.com/whaleshell/whaleshell-core/defaults"
+	"github.com/whaleshell/whaleshell-driver/driver"
 )
 
 const (
 	defaultCDIDevice = "nvidia.com/gpu=all"
-	labelGPU         = "osg.gpu"
+	labelGPU         = "whaleshell.gpu"
 	gpuSandboxImage  = defaults.ImageGPU
 )
 
@@ -29,7 +29,7 @@ func DeviceRequestsForGPU(spec driver.Spec) []container.DeviceRequest {
 		}
 	}
 	if len(ids) == 0 {
-		if env := strings.TrimSpace(os.Getenv("OSG_GPU_CDI")); env != "" {
+		if env := strings.TrimSpace(os.Getenv("WHALESHELL_GPU_CDI")); env != "" {
 			for _, part := range strings.Split(env, ",") {
 				part = strings.TrimSpace(part)
 				if part != "" {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zorneth/osg-driver/driver"
+	"github.com/whaleshell/whaleshell-driver/driver"
 )
 
 func TestStubCreate(t *testing.T) {

@@ -10,26 +10,26 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/zorneth/osg-core/defaults"
+	"github.com/whaleshell/whaleshell-core/defaults"
 )
 
-// EnsureLinuxCLI builds (if needed) a linux/$GOARCH osg binary for mounting into the proxy sidecar.
+// EnsureLinuxCLI builds (if needed) a linux/$GOARCH whaleshell binary for mounting into the proxy sidecar.
 // Host darwin/windows binaries cannot run inside Linux containers (Docker Desktop).
-// Rebuild when missing, OSG_REBUILD_CLI=1, or go.mod newer than the cached binary.
+// Rebuild when missing, WHALESHELL_REBUILD_CLI=1, or go.mod newer than the cached binary.
 func EnsureLinuxCLI(ctx context.Context, moduleDir string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	arch := runtime.GOARCH
-	out := filepath.Join(cacheDir, "osg", "osg-linux-"+arch)
+	out := filepath.Join(cacheDir, "whaleshell", "whaleshell-linux-"+arch)
 	if !needsLinuxRebuild(out, moduleDir) {
 		return out, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/osg")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/whaleshell")
 	cmd.Dir = moduleDir
 	cmd.Env = append(os.Environ(),
 		"GOOS=linux",
@@ -38,13 +38,13 @@ func EnsureLinuxCLI(ctx context.Context, moduleDir string) (string, error) {
 	)
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("sidecar: cross-compile linux osg: %w\n%s", err, strings.TrimSpace(string(b)))
+		return "", fmt.Errorf("sidecar: cross-compile linux whaleshell: %w\n%s", err, strings.TrimSpace(string(b)))
 	}
 	return out, nil
 }
 
 func needsLinuxRebuild(out, moduleDir string) bool {
-	if os.Getenv("OSG_REBUILD_CLI") == "1" || os.Getenv("OSG_REBUILD_INIT") == "1" {
+	if os.Getenv("WHALESHELL_REBUILD_CLI") == "1" || os.Getenv("WHALESHELL_REBUILD_INIT") == "1" {
 		return true
 	}
 	st, err := os.Stat(out)
@@ -87,21 +87,21 @@ func needsLinuxRebuild(out, moduleDir string) bool {
 	return newer
 }
 
-// EnsureLinuxInit builds (if needed) a linux/$GOARCH osg-init for guest harden.
+// EnsureLinuxInit builds (if needed) a linux/$GOARCH whaleshell-init for guest harden.
 func EnsureLinuxInit(ctx context.Context, runtimeModuleDir string) (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
 	arch := runtime.GOARCH
-	out := filepath.Join(cacheDir, "osg", "osg-init-linux-"+arch)
+	out := filepath.Join(cacheDir, "whaleshell", "whaleshell-init-linux-"+arch)
 	if !needsLinuxRebuild(out, runtimeModuleDir) {
 		return out, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/osg-init")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "./cmd/whaleshell-init")
 	cmd.Dir = runtimeModuleDir
 	cmd.Env = append(os.Environ(),
 		"GOOS=linux",
@@ -110,20 +110,20 @@ func EnsureLinuxInit(ctx context.Context, runtimeModuleDir string) (string, erro
 	)
 	b, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("sidecar: cross-compile linux osg-init: %w\n%s", err, strings.TrimSpace(string(b)))
+		return "", fmt.Errorf("sidecar: cross-compile linux whaleshell-init: %w\n%s", err, strings.TrimSpace(string(b)))
 	}
 	_ = os.Chmod(out, 0o755)
 	return out, nil
 }
 
-// EnsureLinuxSSHD builds linux osg-sshd for guest SSH connect.
+// EnsureLinuxSSHD builds linux whaleshell-sshd for guest SSH connect.
 func EnsureLinuxSSHD(ctx context.Context, runtimeModuleDir string) (string, error) {
-	return ensureLinuxCmd(ctx, runtimeModuleDir, "osg-sshd", "./cmd/osg-sshd")
+	return ensureLinuxCmd(ctx, runtimeModuleDir, "whaleshell-sshd", "./cmd/whaleshell-sshd")
 }
 
-// EnsureLinuxAgent builds linux osg-agent for outbound gateway relay.
+// EnsureLinuxAgent builds linux whaleshell-agent for outbound gateway relay.
 func EnsureLinuxAgent(ctx context.Context, runtimeModuleDir string) (string, error) {
-	return ensureLinuxCmd(ctx, runtimeModuleDir, "osg-agent", "./cmd/osg-agent")
+	return ensureLinuxCmd(ctx, runtimeModuleDir, "whaleshell-agent", "./cmd/whaleshell-agent")
 }
 
 func ensureLinuxCmd(ctx context.Context, runtimeModuleDir, name, pkg string) (string, error) {
@@ -132,7 +132,7 @@ func ensureLinuxCmd(ctx context.Context, runtimeModuleDir, name, pkg string) (st
 		return "", err
 	}
 	arch := runtime.GOARCH
-	out := filepath.Join(cacheDir, "osg", name+"-linux-"+arch)
+	out := filepath.Join(cacheDir, "whaleshell", name+"-linux-"+arch)
 	if !needsLinuxRebuild(out, runtimeModuleDir) {
 		return out, nil
 	}
@@ -157,7 +157,7 @@ func ensureLinuxCmd(ctx context.Context, runtimeModuleDir, name, pkg string) (st
 // ProxyEnv returns HTTP(S)_PROXY env entries pointing at the sidecar hostname.
 func ProxyEnv(proxyHost string, port int) []string {
 	if proxyHost == "" {
-		proxyHost = "osg-proxy"
+		proxyHost = "whaleshell-proxy"
 	}
 	if port <= 0 {
 		port = defaults.ProxyPort

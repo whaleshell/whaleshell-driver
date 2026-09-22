@@ -1,4 +1,4 @@
-module github.com/zorneth/osg-driver
+module github.com/whaleshell/whaleshell-driver
 
 go 1.27.0
 
@@ -6,7 +6,7 @@ require (
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/docker/go-units v0.5.0
-	github.com/zorneth/osg-core v0.1.0-alpha.1
+	github.com/whaleshell/whaleshell-core v0.1.0-alpha.1
 	golang.org/x/term v0.46.0
 )
 
@@ -35,8 +35,6 @@ require (
 	golang.org/x/time v0.16.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
-
-replace github.com/zorneth/osg-core => ../osg-core
 
 exclude github.com/docker/go-connections v0.8.0
 

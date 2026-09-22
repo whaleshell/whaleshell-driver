@@ -9,15 +9,15 @@ func TestValidateContainerMountTarget(t *testing.T) {
 	}{
 		{"/workspace/src", true},
 		{"/data", true},
-		{"/osg", false},
-		{"/osg/data", false},
-		{"/osg/policy.yaml", false},
+		{"/whaleshell", false},
+		{"/whaleshell/data", false},
+		{"/whaleshell/policy.yaml", false},
 		{"/proc", false},
 		{"/sys/fs", false},
 		{"/dev/null", false},
-		{"/run/osg/ssh.sock", false},
+		{"/run/whaleshell/ssh.sock", false},
 		{"relative", false},
-		{"/workspace/../osg", false}, // has ..
+		{"/workspace/../whaleshell", false}, // has ..
 	}
 	for _, tc := range cases {
 		err := ValidateContainerMountTarget(tc.target)
@@ -37,16 +37,16 @@ func TestValidateUploadDest(t *testing.T) {
 	if err := ValidateUploadDest("/workspace"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateUploadDest("/osg/data/x"); err == nil {
-		t.Fatal("expected refuse /osg")
+	if err := ValidateUploadDest("/whaleshell/data/x"); err == nil {
+		t.Fatal("expected refuse /whaleshell")
 	}
 }
 
 func TestPathsOverlap(t *testing.T) {
-	if !PathsOverlap("/osg", "/osg/data") {
+	if !PathsOverlap("/whaleshell", "/whaleshell/data") {
 		t.Fatal("expected overlap")
 	}
-	if PathsOverlap("/workspace", "/osg") {
+	if PathsOverlap("/workspace", "/whaleshell") {
 		t.Fatal("no overlap")
 	}
 }

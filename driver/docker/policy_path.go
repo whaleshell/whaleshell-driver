@@ -9,13 +9,13 @@ import (
 	"github.com/docker/docker/api/types/filters"
 )
 
-// PolicyHostPath returns the host path of the sandbox policy bind (label osg.policy_path).
+// PolicyHostPath returns the host path of the sandbox policy bind (label whaleshell.policy_path).
 func (d *Driver) PolicyHostPath(ctx context.Context, nameOrID string) (string, error) {
 	if d == nil || d.cli == nil {
 		return "", fmt.Errorf("docker driver: client not initialized")
 	}
 	name := sanitizeName(nameOrID)
-	for _, ctr := range []string{"osg-proxy-" + name, "osg-" + name} {
+	for _, ctr := range []string{"whaleshell-proxy-" + name, "whaleshell-" + name} {
 		ins, err := d.cli.ContainerInspect(ctx, ctr)
 		if err != nil {
 			continue
@@ -24,7 +24,7 @@ func (d *Driver) PolicyHostPath(ctx context.Context, nameOrID string) (string, e
 			return p, nil
 		}
 		for _, m := range ins.Mounts {
-			if m.Destination == "/osg/policy.yaml" && m.Source != "" {
+			if m.Destination == "/whaleshell/policy.yaml" && m.Source != "" {
 				return m.Source, nil
 			}
 		}

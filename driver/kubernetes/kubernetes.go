@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/zorneth/osg-core"
-	"github.com/zorneth/osg-driver/driver"
+	"github.com/whaleshell/whaleshell-core"
+	"github.com/whaleshell/whaleshell-driver/driver"
 )
 
 // Driver is a placeholder for a future client-go / Agent Sandbox backend.

@@ -6,15 +6,15 @@ import (
 	"strings"
 )
 
-// OpenShell-aligned guest reserved roots (osg control plane + OCI runtime mounts).
+// OpenShell-aligned guest reserved roots (whaleshell control plane + OCI runtime mounts).
 // Intentionally not a general Linux system-path denylist for host sources —
 // host workspace secrets use DenyBasenames / ResolveWorkspace instead.
 var (
-	// ControlRoots are in-guest paths owned by osg (must not be user-mounted over).
+	// ControlRoots are in-guest paths owned by whaleshell (must not be user-mounted over).
 	ControlRoots = []string{
-		"/osg",
-		"/etc/osg",
-		"/run/osg",
+		"/whaleshell",
+		"/etc/whaleshell",
+		"/run/whaleshell",
 		"/run/netns",
 		"/var/run/netns",
 	}

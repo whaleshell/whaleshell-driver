@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zorneth/osg-core/defaults"
+	"github.com/whaleshell/whaleshell-core/defaults"
 )
 
 func TestCABundleEnvIncludesGit(t *testing.T) {

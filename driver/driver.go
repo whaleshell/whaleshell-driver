@@ -5,12 +5,12 @@ import (
 	"context"
 	"io"
 
-	"github.com/zorneth/osg-core"
+	"github.com/whaleshell/whaleshell-core"
 )
 
 // Spec describes a sandbox to create.
 type Spec struct {
-	Name      string   // human name → container osg-<name>
+	Name      string   // human name → container whaleshell-<name>
 	Image     string   // default debian:bookworm
 	Workspace string   // absolute host path → /workspace
 	Command   []string // default: sleep infinity
@@ -18,13 +18,13 @@ type Spec struct {
 	IKnow     bool     // override mount deny-list (logged by caller)
 
 	// Egress sidecar (P3). When ProxyBin is set, network is internal and
-	// a dual-homed osg-proxy-<name> container is started beside the sandbox.
-	ProxyBin   string   // linux osg binary (host path)
+	// a dual-homed whaleshell-proxy-<name> container is started beside the sandbox.
+	ProxyBin   string   // linux whaleshell binary (host path)
 	PolicyPath string   // policy YAML mounted read-only into the proxy (+ sandbox)
 	ProxyPort  int      // default defaults.ProxyPort
 	ProxyEnv   []string // real credential KEY=VAL for placeholder rewrite (proxy only)
 
-	// Harden (P4): linux osg-init binary mounted at /osg/osg-init; execs are wrapped.
+	// Harden (P4): linux whaleshell-init binary mounted at /whaleshell/whaleshell-init; execs are wrapped.
 	InitBin  string
 	NoHarden bool
 
@@ -33,24 +33,24 @@ type Spec struct {
 	DisplayPort     int    // host port; 0 uses defaults.NoVNCPort
 	DisplayPassword string // VNC/noVNC password
 
-	// Labels (P8): arbitrary osg.* / user labels on the container.
+	// Labels (P8): arbitrary whaleshell.* / user labels on the container.
 	Labels map[string]string
 
-	// ExtraHosts entries "host:ip" (Docker ExtraHosts). host.osg.internal added by CLI.
+	// ExtraHosts entries "host:ip" (Docker ExtraHosts). host.whaleshell.internal added by CLI.
 	ExtraHosts []string
 
 	// GatewayURL when set, create registers the sandbox with the control plane.
 	GatewayURL string
 
-	// PersistVolume mounts named volume osg-data-<name> at defaults.GuestData (retained across stop/start).
+	// PersistVolume mounts named volume whaleshell-data-<name> at defaults.GuestData (retained across stop/start).
 	PersistVolume bool
 
-	// EnableSSH publishes loopback to defaults.GuestSSHPort and expects /osg/osg-sshd (linux binary).
+	// EnableSSH publishes loopback to defaults.GuestSSHPort and expects /whaleshell/whaleshell-sshd (linux binary).
 	EnableSSH bool
-	SSHBin    string // host path to linux osg-sshd
+	SSHBin    string // host path to linux whaleshell-sshd
 
 	// GPU requests NVIDIA CDI devices into the sandbox (Docker DeviceRequests).
-	// Default device when CDIDevices empty: nvidia.com/gpu=all (override via OSG_GPU_CDI).
+	// Default device when CDIDevices empty: nvidia.com/gpu=all (override via WHALESHELL_GPU_CDI).
 	GPU        bool
 	GPUCount   int      // reserved; CDI list takes precedence in MVP
 	CDIDevices []string // e.g. nvidia.com/gpu=0

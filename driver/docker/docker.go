@@ -29,27 +29,27 @@ import (
 	"archive/tar"
 	"path/filepath"
 
-	"github.com/zorneth/osg-core"
-	"github.com/zorneth/osg-core/defaults"
-	"github.com/zorneth/osg-driver/driver"
-	"github.com/zorneth/osg-driver/mounts"
-	"github.com/zorneth/osg-driver/sidecar"
+	"github.com/whaleshell/whaleshell-core"
+	"github.com/whaleshell/whaleshell-core/defaults"
+	"github.com/whaleshell/whaleshell-driver/driver"
+	"github.com/whaleshell/whaleshell-driver/mounts"
+	"github.com/whaleshell/whaleshell-driver/sidecar"
 )
 
 const (
-	labelSandbox = "osg.sandbox"
-	labelName    = "osg.name"
-	labelNetwork = "osg.network"
-	labelRole    = "osg.role"
-	labelInit    = "osg.init"
-	labelVolume  = "osg.volume"
-	labelSSH     = "osg.ssh"
-	labelPolicy  = "osg.policy_path"
+	labelSandbox = "whaleshell.sandbox"
+	labelName    = "whaleshell.name"
+	labelNetwork = "whaleshell.network"
+	labelRole    = "whaleshell.role"
+	labelInit    = "whaleshell.init"
+	labelVolume  = "whaleshell.volume"
+	labelSSH     = "whaleshell.ssh"
+	labelPolicy  = "whaleshell.policy_path"
 	roleSandbox  = "sandbox"
 	roleProxy    = "proxy"
 )
 
-// Image and guest layout defaults (aliased from osg-core/defaults).
+// Image and guest layout defaults (aliased from whaleshell-core/defaults).
 const (
 	defaultImage      = defaults.ImageDebian
 	localSandboxImage = defaults.ImageLocal
@@ -78,12 +78,12 @@ func New() (*Driver, error) {
 }
 
 // HostGatewayExtraHosts maps OpenShell-style host-gateway aliases into containers.
-// Canonical callback is host.osg.internal (cf. host.openshell.internal). On Linux,
+// Canonical callback is host.whaleshell.internal (cf. host.openshell.internal). On Linux,
 // host.docker.internal is also mapped so Desktop/Linux compose parity holds —
 // same pair OpenShell documents under extra_hosts.
 func HostGatewayExtraHosts() []string {
 	return []string{
-		"host.osg.internal:host-gateway",
+		"host.whaleshell.internal:host-gateway",
 		"host.docker.internal:host-gateway",
 	}
 }
@@ -123,8 +123,8 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 	if err != nil {
 		return driver.Handle{}, err
 	}
-	netName := "osg-net-" + name
-	ctrName := "osg-" + name
+	netName := "whaleshell-net-" + name
+	ctrName := "whaleshell-" + name
 	withProxy := strings.TrimSpace(spec.ProxyBin) != ""
 
 	if err := d.ensureImage(ctx, img); err != nil {
@@ -141,8 +141,8 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		if port <= 0 {
 			port = defaultProxy
 		}
-		proxyHost := "osg-proxy-" + name
-		caVol = "osg-ca-" + name
+		proxyHost := "whaleshell-proxy-" + name
+		caVol = "whaleshell-ca-" + name
 		if err := d.ensureVolume(ctx, caVol); err != nil {
 			_ = d.cli.NetworkRemove(ctx, netName)
 			return driver.Handle{}, err
@@ -167,7 +167,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 	}
 	if caVol != "" {
 		binds = append(binds, caVol+":"+defaults.GuestCADir+":ro")
-		labels["osg.ca_volume"] = caVol
+		labels["whaleshell.ca_volume"] = caVol
 	}
 	for k, v := range spec.Labels {
 		k = strings.TrimSpace(k)
@@ -177,10 +177,10 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		labels[k] = v
 	}
 	if j := strings.TrimSpace(spec.DriverConfigJSON); j != "" {
-		labels["osg.driver-config-json"] = j
+		labels["whaleshell.driver-config-json"] = j
 	}
 	if spec.PersistVolume {
-		volName := "osg-data-" + name
+		volName := "whaleshell-data-" + name
 		if err := d.ensureVolume(ctx, volName); err != nil {
 			if withProxy {
 				_ = d.removeProxySidecar(ctx, name)
@@ -191,7 +191,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		binds = append(binds, volName+":"+guestDataPath+":rw")
 		labels[labelVolume] = volName
 		env = mergeEnv(env, []string{
-			"OSG_DATA=" + guestDataPath,
+			"WHALESHELL_DATA=" + guestDataPath,
 			"HOME=" + guestHomePath,
 			"PATH=" + guestPath,
 		})
@@ -200,10 +200,10 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		if _, err := os.Stat(spec.InitBin); err != nil {
 			return driver.Handle{}, fmt.Errorf("docker init bin: %w", err)
 		}
-		binds = append(binds, spec.InitBin+":/osg/osg-init:ro")
+		binds = append(binds, spec.InitBin+":/whaleshell/whaleshell-init:ro")
 		if spec.PolicyPath != "" {
-			binds = append(binds, spec.PolicyPath+":/osg/policy.yaml:ro")
-			env = mergeEnv(env, []string{"OSG_POLICY=/osg/policy.yaml"})
+			binds = append(binds, spec.PolicyPath+":/whaleshell/policy.yaml:ro")
+			env = mergeEnv(env, []string{"WHALESHELL_POLICY=/whaleshell/policy.yaml"})
 			if abs, err := filepath.Abs(spec.PolicyPath); err == nil {
 				labels[labelPolicy] = abs
 			} else {
@@ -219,9 +219,9 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		if _, err := os.Stat(spec.SSHBin); err != nil {
 			return driver.Handle{}, fmt.Errorf("docker ssh bin: %w", err)
 		}
-		binds = append(binds, spec.SSHBin+":/osg/osg-sshd:ro")
+		binds = append(binds, spec.SSHBin+":/whaleshell/whaleshell-sshd:ro")
 		labels[labelSSH] = "1"
-		env = mergeEnv(env, []string{"OSG_SSH=1"})
+		env = mergeEnv(env, []string{"WHALESHELL_SSH=1"})
 	}
 
 	displayMode := strings.ToLower(strings.TrimSpace(spec.DisplayMode))
@@ -232,7 +232,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		}
 		pass := strings.TrimSpace(spec.DisplayPassword)
 		if pass == "" {
-			pass = "osg"
+			pass = "whaleshell"
 		}
 		hostPort := spec.DisplayPort
 		if hostPort <= 0 {
@@ -241,22 +241,22 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		env = mergeEnv(env, []string{
 			"DISPLAY_MODE=novnc",
 			"DISPLAY=:99",
-			"OSG_VNC_PASSWORD=" + pass,
-			fmt.Sprintf("OSG_NOVNC_PORT=%d", defaultNoVNCPort),
+			"WHALESHELL_VNC_PASSWORD=" + pass,
+			fmt.Sprintf("WHALESHELL_NOVNC_PORT=%d", defaultNoVNCPort),
 		})
-		labels["osg.display"] = "novnc"
-		labels["osg.display.port"] = strconv.Itoa(hostPort)
+		labels["whaleshell.display"] = "novnc"
+		labels["whaleshell.display.port"] = strconv.Itoa(hostPort)
 	}
 
 	cmd := spec.Command
 	if len(cmd) == 0 {
 		switch {
 		case withDisplay && usesEmbeddedInit(img):
-			cmd = []string{"--", "/usr/local/bin/osg-gui-boot"}
+			cmd = []string{"--", "/usr/local/bin/whaleshell-gui-boot"}
 		case usesEmbeddedInit(img):
 			cmd = []string{"--", "sleep", "infinity"}
 		case withDisplay:
-			cmd = []string{"/usr/local/bin/osg-gui-boot"}
+			cmd = []string{"/usr/local/bin/whaleshell-gui-boot"}
 		default:
 			cmd = []string{"sleep", "infinity"}
 		}
@@ -362,7 +362,7 @@ func (d *Driver) Start(ctx context.Context, id core.ID) error {
 }
 
 // ensureGuestLayout creates durable home/bin under GuestData for agent installs.
-// Uses a raw docker exec (no osg-init wrap) so layout works before harden paths matter.
+// Uses a raw docker exec (no whaleshell-init wrap) so layout works before harden paths matter.
 func (d *Driver) ensureGuestLayout(ctx context.Context, id string) error {
 	info, err := d.cli.ContainerInspect(ctx, id)
 	if err != nil || info.Config == nil {
@@ -377,7 +377,7 @@ func (d *Driver) ensureGuestLayout(ctx context.Context, id string) error {
 	script := "mkdir -p " + guestHomePath + "/.local/bin " + guestBinPath + " /etc/profile.d && " +
 		"printf '%s\\n' 'export PATH=\"" + guestHomePath + "/.local/bin:" + guestBinPath + ":$PATH\"' > " + guestHomePath + "/.profile && " +
 		"printf '%s\\n' 'export PATH=\"" + guestHomePath + "/.local/bin:" + guestBinPath + ":$PATH\"' > " + guestHomePath + "/.bashrc && " +
-		"printf '%s\\n' 'export PATH=\"" + guestHomePath + "/.local/bin:" + guestBinPath + ":$PATH\"' > /etc/profile.d/osg-path.sh"
+		"printf '%s\\n' 'export PATH=\"" + guestHomePath + "/.local/bin:" + guestBinPath + ":$PATH\"' > /etc/profile.d/whaleshell-path.sh"
 	execID, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
 		Cmd:          []string{"/bin/bash", "-c", script},
 		AttachStdout: true,
@@ -414,11 +414,11 @@ func (d *Driver) Stop(ctx context.Context, id core.ID) error {
 }
 
 // Exec runs a command in the container. With TTY, attaches stdin/stdout in raw mode.
-// When the sandbox was created with osg-init, argv is wrapped: osg-init -- <cmd>.
+// When the sandbox was created with whaleshell-init, argv is wrapped: whaleshell-init -- <cmd>.
 //
 // Docker ContainerExecCreate Env replaces the process environment when non-empty.
 // We always merge the container's Config.Env first so HTTP_PROXY / CA / HOME from
-// create survive (otherwise `osg exec` / create `-- agent` cannot reach the sidecar).
+// create survive (otherwise `whaleshell exec` / create `-- agent` cannot reach the sidecar).
 func (d *Driver) Exec(ctx context.Context, id core.ID, req driver.ExecRequest) (driver.ExecResult, error) {
 	if len(req.Argv) == 0 {
 		return driver.ExecResult{}, fmt.Errorf("docker exec: empty argv")
@@ -432,7 +432,7 @@ func (d *Driver) Exec(ctx context.Context, id core.ID, req driver.ExecRequest) (
 	if info, err := d.cli.ContainerInspect(ctx, string(id)); err == nil && info.Config != nil {
 		containerEnv = append([]string{}, info.Config.Env...)
 		if info.Config.Labels[labelInit] == "1" {
-			argv = append([]string{"/osg/osg-init", "--"}, req.Argv...)
+			argv = append([]string{"/whaleshell/whaleshell-init", "--"}, req.Argv...)
 		}
 		// Proxy sidecar has no /workspace mount; exec must not chdir there.
 		if info.Config.Labels[labelRole] == roleProxy {
@@ -590,7 +590,7 @@ func resizeExecOnce(ctx context.Context, cli client.ContainerAPIClient, execID s
 	})
 }
 
-// Delete removes sandbox container, proxy sidecar, osg network, and data volume.
+// Delete removes sandbox container, proxy sidecar, whaleshell network, and data volume.
 func (d *Driver) Delete(ctx context.Context, id core.ID) error {
 	info, err := d.cli.ContainerInspect(ctx, string(id))
 	if err != nil {
@@ -599,7 +599,7 @@ func (d *Driver) Delete(ctx context.Context, id core.ID) error {
 	netName := info.Config.Labels[labelNetwork]
 	name := info.Config.Labels[labelName]
 	volName := info.Config.Labels[labelVolume]
-	caVol := info.Config.Labels["osg.ca_volume"]
+	caVol := info.Config.Labels["whaleshell.ca_volume"]
 	_ = d.cli.ContainerRemove(ctx, string(id), container.RemoveOptions{Force: true})
 	if name != "" {
 		_ = d.removeProxySidecar(ctx, name)
@@ -616,7 +616,7 @@ func (d *Driver) Delete(ctx context.Context, id core.ID) error {
 	return nil
 }
 
-// List returns osg sandbox containers (excludes proxy sidecars).
+// List returns whaleshell sandbox containers (excludes proxy sidecars).
 func (d *Driver) List(ctx context.Context) ([]driver.Info, error) {
 	f := filters.NewArgs()
 	f.Add("label", labelSandbox+"=1")
@@ -650,20 +650,20 @@ func (d *Driver) Inspect(ctx context.Context, nameOrID string) (driver.Info, err
 	if nameOrID == "" {
 		return driver.Info{}, fmt.Errorf("docker inspect: empty name")
 	}
-	// Try container name osg-<name>
-	candidates := []string{nameOrID, "osg-" + nameOrID}
+	// Try container name whaleshell-<name>
+	candidates := []string{nameOrID, "whaleshell-" + nameOrID}
 	for _, id := range candidates {
 		c, err := d.cli.ContainerInspect(ctx, id)
 		if err != nil {
 			continue
 		}
-		if c.Config.Labels[labelSandbox] != "1" && !strings.HasPrefix(strings.TrimPrefix(c.Name, "/"), "osg-") {
+		if c.Config.Labels[labelSandbox] != "1" && !strings.HasPrefix(strings.TrimPrefix(c.Name, "/"), "whaleshell-") {
 			continue
 		}
 		name := c.Config.Labels[labelName]
 		if name == "" {
 			name = strings.TrimPrefix(c.Name, "/")
-			name = strings.TrimPrefix(name, "osg-")
+			name = strings.TrimPrefix(name, "whaleshell-")
 		}
 		return driver.Info{
 			ID:      core.ID(c.ID),
@@ -676,7 +676,7 @@ func (d *Driver) Inspect(ctx context.Context, nameOrID string) (driver.Info, err
 	return driver.Info{}, fmt.Errorf("docker inspect: sandbox %q not found", nameOrID)
 }
 
-// ContainerIP returns the sandbox container IP on its osg network.
+// ContainerIP returns the sandbox container IP on its whaleshell network.
 func (d *Driver) ContainerIP(ctx context.Context, containerID, networkName string) (string, error) {
 	if d == nil || d.cli == nil {
 		return "", fmt.Errorf("docker driver: client not initialized")
@@ -734,10 +734,10 @@ func (d *Driver) Logs(ctx context.Context, id core.ID, follow bool, w io.Writer)
 	if info, err := d.cli.ContainerInspect(ctx, string(id)); err == nil && info.Config != nil {
 		name := info.Config.Labels[labelName]
 		if name == "" {
-			name = strings.TrimPrefix(strings.TrimPrefix(info.Name, "/"), "osg-")
+			name = strings.TrimPrefix(strings.TrimPrefix(info.Name, "/"), "whaleshell-")
 		}
 		if name != "" {
-			proxyName := "osg-proxy-" + name
+			proxyName := "whaleshell-proxy-" + name
 			if _, err := d.cli.ContainerInspect(ctx, proxyName); err == nil {
 				sources = append(sources, src{id: proxyName, prefix: "proxy"})
 			}
@@ -825,7 +825,7 @@ func (d *Driver) ensureVolume(ctx context.Context, name string) error {
 	if err == nil {
 		return nil
 	}
-	_, err = d.cli.VolumeCreate(ctx, volume.CreateOptions{Name: name, Labels: map[string]string{"osg.volume": "1"}})
+	_, err = d.cli.VolumeCreate(ctx, volume.CreateOptions{Name: name, Labels: map[string]string{"whaleshell.volume": "1"}})
 	if err != nil {
 		return fmt.Errorf("docker volume create %s: %w", name, err)
 	}
@@ -1014,7 +1014,7 @@ func (d *Driver) SSHPort(ctx context.Context, id core.ID) (int, error) {
 	return port, nil
 }
 
-// EnsureSSHDaemon starts /osg/osg-sshd inside the guest if labeled for SSH.
+// EnsureSSHDaemon starts /whaleshell/whaleshell-sshd inside the guest if labeled for SSH.
 func (d *Driver) EnsureSSHDaemon(ctx context.Context, id core.ID, authorizedKey string) error {
 	info, err := d.cli.ContainerInspect(ctx, string(id))
 	if err != nil {
@@ -1023,7 +1023,7 @@ func (d *Driver) EnsureSSHDaemon(ctx context.Context, id core.ID, authorizedKey 
 	if info.Config == nil || info.Config.Labels[labelSSH] != "1" {
 		return fmt.Errorf("sandbox was not created with --ssh")
 	}
-	tmp, err := os.MkdirTemp("", "osg-ssh-*")
+	tmp, err := os.MkdirTemp("", "whaleshell-ssh-*")
 	if err != nil {
 		return err
 	}
@@ -1032,16 +1032,16 @@ func (d *Driver) EnsureSSHDaemon(ctx context.Context, id core.ID, authorizedKey 
 	if err := os.WriteFile(keyFile, []byte(authorizedKey+"\n"), 0o600); err != nil {
 		return err
 	}
-	if err := d.CopyTo(ctx, id, keyFile, "/osg/ssh/authorized_keys"); err != nil {
+	if err := d.CopyTo(ctx, id, keyFile, "/whaleshell/ssh/authorized_keys"); err != nil {
 		// ensure dir then retry via shell mkdir
-		_, _ = d.Exec(ctx, id, driver.ExecRequest{Argv: []string{"mkdir", "-p", "/osg/ssh"}})
-		if err := d.CopyTo(ctx, id, keyFile, "/osg/ssh/authorized_keys"); err != nil {
+		_, _ = d.Exec(ctx, id, driver.ExecRequest{Argv: []string{"mkdir", "-p", "/whaleshell/ssh"}})
+		if err := d.CopyTo(ctx, id, keyFile, "/whaleshell/ssh/authorized_keys"); err != nil {
 			return err
 		}
 	}
 	_, err = d.Exec(ctx, id, driver.ExecRequest{
 		Argv: []string{"sh", "-c", fmt.Sprintf(
-			`chmod 600 /osg/ssh/authorized_keys 2>/dev/null; if ! pgrep -f /osg/osg-sshd >/dev/null 2>&1; then /osg/osg-sshd --listen 0.0.0.0:%d --authorized-keys /osg/ssh/authorized_keys --host-key /osg/ssh/host_ed25519 >/osg/ssh/sshd.log 2>&1 & fi; sleep 0.3; pgrep -f /osg/osg-sshd >/dev/null`,
+			`chmod 600 /whaleshell/ssh/authorized_keys 2>/dev/null; if ! pgrep -f /whaleshell/whaleshell-sshd >/dev/null 2>&1; then /whaleshell/whaleshell-sshd --listen 0.0.0.0:%d --authorized-keys /whaleshell/ssh/authorized_keys --host-key /whaleshell/ssh/host_ed25519 >/whaleshell/ssh/sshd.log 2>&1 & fi; sleep 0.3; pgrep -f /whaleshell/whaleshell-sshd >/dev/null`,
 			guestSSHPort)},
 	})
 	return err
@@ -1076,21 +1076,21 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 	if _, err := os.Stat(policyPath); err != nil {
 		return fmt.Errorf("docker proxy policy: %w", err)
 	}
-	ctrName := "osg-proxy-" + name
+	ctrName := "whaleshell-proxy-" + name
 	_ = d.cli.ContainerRemove(ctx, ctrName, container.RemoveOptions{Force: true})
 
 	binds := []string{
-		binPath + ":/osg/osg:ro",
-		policyPath + ":/osg/policy.yaml:ro",
+		binPath + ":/whaleshell/whaleshell:ro",
+		policyPath + ":/whaleshell/policy.yaml:ro",
 	}
 	cmd := []string{
 		"proxy",
 		"--listen", fmt.Sprintf("0.0.0.0:%d", port),
-		"--policy", "/osg/policy.yaml",
+		"--policy", "/whaleshell/policy.yaml",
 	}
 	if caVol != "" {
-		binds = append(binds, caVol+":/osg/ca:rw")
-		cmd = append(cmd, "--ca-out", "/osg/ca/ca.pem")
+		binds = append(binds, caVol+":/whaleshell/ca:rw")
+		cmd = append(cmd, "--ca-out", "/whaleshell/ca/ca.pem")
 	}
 
 	absPolicy := policyPath
@@ -1099,9 +1099,9 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 	}
 	cfg := &container.Config{
 		Image: img,
-		// Agent images (cursor/claude) set ENTRYPOINT=/usr/local/bin/osg-init — that must
+		// Agent images (cursor/claude) set ENTRYPOINT=/usr/local/bin/whaleshell-init — that must
 		// NOT wrap the sidecar. Entrypoint is the mounted linux CLI; Cmd is proxy args.
-		Entrypoint: []string{"/osg/osg"},
+		Entrypoint: []string{"/whaleshell/whaleshell"},
 		Cmd:        cmd,
 		Env:        append([]string{}, proxyEnv...),
 		Labels: map[string]string{
@@ -1115,15 +1115,15 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 			nat.Port(fmt.Sprintf("%d/tcp", port)): {},
 		},
 	}
-	// OpenShell-style: host.osg.internal → host-gateway so the sidecar can
-	// ResolveSecrets from osg-gateway on the host (no runtime hostname fallback).
+	// OpenShell-style: host.whaleshell.internal → host-gateway so the sidecar can
+	// ResolveSecrets from whaleshell-gateway on the host (no runtime hostname fallback).
 	host := &container.HostConfig{
 		Binds:      binds,
 		ExtraHosts: HostGatewayExtraHosts(),
 	}
 	networking := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			netName: {Aliases: []string{"osg-proxy", ctrName}},
+			netName: {Aliases: []string{"whaleshell-proxy", ctrName}},
 		},
 	}
 	resp, err := d.cli.ContainerCreate(ctx, cfg, host, networking, nil, ctrName)
@@ -1158,7 +1158,7 @@ func (d *Driver) waitProxyCA(ctx context.Context, proxyID string, timeout time.D
 	var lastErr error
 	for time.Now().Before(deadline) {
 		res, err := d.Exec(ctx, core.ID(proxyID), driver.ExecRequest{
-			Argv: []string{"test", "-s", "/osg/ca/ca.pem"},
+			Argv: []string{"test", "-s", "/whaleshell/ca/ca.pem"},
 		})
 		if err == nil && res.ExitCode == 0 {
 			return nil
@@ -1178,9 +1178,9 @@ func (d *Driver) waitProxyCA(ctx context.Context, proxyID string, timeout time.D
 	}
 	detail := strings.TrimSpace(buf.String())
 	if detail != "" {
-		return fmt.Errorf("docker proxy: timed out waiting for /osg/ca/ca.pem (last exec: %v)\nproxy logs:\n%s", lastErr, detail)
+		return fmt.Errorf("docker proxy: timed out waiting for /whaleshell/ca/ca.pem (last exec: %v)\nproxy logs:\n%s", lastErr, detail)
 	}
-	return fmt.Errorf("docker proxy: timed out waiting for /osg/ca/ca.pem (last exec: %v)", lastErr)
+	return fmt.Errorf("docker proxy: timed out waiting for /whaleshell/ca/ca.pem (last exec: %v)", lastErr)
 }
 
 // waitProxyListening waits until the sidecar accepts TCP on 127.0.0.1:port.
@@ -1219,7 +1219,7 @@ func (d *Driver) waitProxyListening(ctx context.Context, proxyID string, port in
 }
 
 func (d *Driver) removeProxySidecar(ctx context.Context, name string) error {
-	ctrName := "osg-proxy-" + name
+	ctrName := "whaleshell-proxy-" + name
 	_ = d.cli.ContainerRemove(ctx, ctrName, container.RemoveOptions{Force: true})
 	return nil
 }
@@ -1263,7 +1263,7 @@ func (d *Driver) ensureImage(ctx context.Context, ref string) error {
 		return nil
 	}
 	low := strings.ToLower(ref)
-	if low == localSandboxImage || low == guiSandboxImage || low == gpuSandboxImage || strings.HasPrefix(low, "osg-sandbox:") {
+	if low == localSandboxImage || low == guiSandboxImage || low == gpuSandboxImage || strings.HasPrefix(low, "whaleshell-sandbox:") {
 		hint := "cli"
 		switch {
 		case low == guiSandboxImage || strings.Contains(low, "gui"):
@@ -1307,7 +1307,7 @@ func (d *Driver) defaultSandboxImage(ctx context.Context, displayMode string, gp
 
 func usesEmbeddedInit(img string) bool {
 	img = strings.TrimSpace(strings.ToLower(img))
-	return img == localSandboxImage || img == guiSandboxImage || strings.HasPrefix(img, "osg-sandbox:")
+	return img == localSandboxImage || img == guiSandboxImage || strings.HasPrefix(img, "whaleshell-sandbox:")
 }
 
 func imageHasGUI(ctx context.Context, d *Driver, img string) bool {
@@ -1315,7 +1315,7 @@ func imageHasGUI(ctx context.Context, d *Driver, img string) bool {
 	if img == guiSandboxImage || strings.Contains(img, ":gui") {
 		return true
 	}
-	// Heuristic: inspect for osg-gui-boot via missing path is hard; require known tags.
+	// Heuristic: inspect for whaleshell-gui-boot via missing path is hard; require known tags.
 	_ = ctx
 	_ = d
 	return false
@@ -1344,7 +1344,7 @@ func sanitizeName(name string) string {
 	return s
 }
 
-// RunProbe runs osg-init --probe in a one-shot helper container (Landlock ABI).
+// RunProbe runs whaleshell-init --probe in a one-shot helper container (Landlock ABI).
 func (d *Driver) RunProbe(ctx context.Context, initBin string) (string, error) {
 	if d == nil || d.cli == nil {
 		return "", fmt.Errorf("docker client not initialized")
@@ -1354,11 +1354,11 @@ func (d *Driver) RunProbe(ctx context.Context, initBin string) (string, error) {
 	}
 	cfg := &container.Config{
 		Image:      defaultImage,
-		Cmd:        []string{"/osg/osg-init", "--probe"},
+		Cmd:        []string{"/whaleshell/whaleshell-init", "--probe"},
 		WorkingDir: "/",
 	}
 	host := &container.HostConfig{
-		Binds: []string{initBin + ":/osg/osg-init:ro"},
+		Binds: []string{initBin + ":/whaleshell/whaleshell-init:ro"},
 		// AutoRemove handled after wait
 	}
 	resp, err := d.cli.ContainerCreate(ctx, cfg, host, nil, nil, "")
@@ -1417,7 +1417,7 @@ func summarizeProbeJSON(raw string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(raw, "\n", " "), "  ", " ")
 }
 
-// Probe is a host-side Docker readiness report for `osg health`.
+// Probe is a host-side Docker readiness report for `whaleshell health`.
 type Probe struct {
 	OK              bool
 	ServerVersion   string

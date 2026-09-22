@@ -15,7 +15,7 @@ import (
 
 	"github.com/docker/docker/client"
 
-	"github.com/zorneth/osg-driver/driver/docker"
+	"github.com/whaleshell/whaleshell-driver/driver/docker"
 )
 
 // New returns a compute driver pointed at Podman.
@@ -48,7 +48,7 @@ func ResolveHost() (string, error) {
 }
 
 // DiscoverSocket finds a usable podman.sock.
-// Order: OSG_PODMAN_SOCKET, XDG_RUNTIME_DIR, /run/user/$UID/…,
+// Order: WHALESHELL_PODMAN_SOCKET, XDG_RUNTIME_DIR, /run/user/$UID/…,
 // machine sock under HOME, then `podman info`.
 func DiscoverSocket() (string, error) {
 	for _, c := range socketCandidates() {
@@ -59,7 +59,7 @@ func DiscoverSocket() (string, error) {
 	if s, ok := socketFromPodmanInfo(); ok {
 		return s, nil
 	}
-	return "", fmt.Errorf("podman: no API socket found (try: systemctl --user enable --now podman.socket, or set OSG_PODMAN_SOCKET / DOCKER_HOST)")
+	return "", fmt.Errorf("podman: no API socket found (try: systemctl --user enable --now podman.socket, or set WHALESHELL_PODMAN_SOCKET / DOCKER_HOST)")
 }
 
 func socketCandidates() []string {
@@ -76,7 +76,7 @@ func socketCandidates() []string {
 		}
 		out = append(out, p)
 	}
-	add(os.Getenv("OSG_PODMAN_SOCKET"))
+	add(os.Getenv("WHALESHELL_PODMAN_SOCKET"))
 	if xdg := os.Getenv("XDG_RUNTIME_DIR"); xdg != "" {
 		add(filepath.Join(xdg, "podman", "podman.sock"))
 	}
