@@ -268,6 +268,17 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		Labels:     labels,
 		WorkingDir: mounts.WorkdirInContainer,
 	}
+	// Prefer host-mounted whaleshell-init over whatever ENTRYPOINT the image baked
+	// (legacy osg-init looked for /osg/policy.yaml and dies on rename).
+	if !spec.NoHarden && strings.TrimSpace(spec.InitBin) != "" {
+		cfg.Entrypoint = []string{"/whaleshell/whaleshell-init"}
+		if len(spec.Command) == 0 && !usesEmbeddedInit(img) && !withDisplay {
+			// Image has no init wrapper — Cmd is the payload after "--".
+			cfg.Cmd = append([]string{"--"}, cmd...)
+		} else if len(spec.Command) == 0 && !usesEmbeddedInit(img) && withDisplay {
+			cfg.Cmd = []string{"--", "/usr/local/bin/whaleshell-gui-boot"}
+		}
+	}
 	host := &container.HostConfig{
 		Binds: binds,
 		// Never mount docker.sock into the sandbox.
@@ -1264,14 +1275,20 @@ func (d *Driver) ensureImage(ctx context.Context, ref string) error {
 	}
 	low := strings.ToLower(ref)
 	if low == localSandboxImage || low == guiSandboxImage || low == gpuSandboxImage || strings.HasPrefix(low, "whaleshell-sandbox:") {
-		hint := "cli"
+		hint := "task runtime:image:cli"
 		switch {
+		case strings.Contains(low, "cursor"):
+			hint = "task docker:agent:cursor"
+		case strings.Contains(low, "claude"):
+			hint = "task docker:agent:claude"
+		case strings.Contains(low, "codex"):
+			hint = "task docker:agent:codex"
 		case low == guiSandboxImage || strings.Contains(low, "gui"):
-			hint = "gui"
+			hint = "task runtime:image:gui"
 		case low == gpuSandboxImage || strings.Contains(low, "gpu"):
-			hint = "gpu"
+			hint = "task runtime:image:gpu"
 		}
-		return fmt.Errorf("docker image %s not found locally; build with: task runtime:image %s", ref, hint)
+		return fmt.Errorf("docker image %s not found locally; build with: %s (or: task images:pull)", ref, hint)
 	}
 	rc, err := d.cli.ImagePull(ctx, ref, image.PullOptions{})
 	if err != nil {
