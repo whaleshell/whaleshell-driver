@@ -127,6 +127,15 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 	if err := d.ensureImage(ctx, img); err != nil {
 		return driver.Handle{}, err
 	}
+	proxyImg := ""
+	if withProxy {
+		proxyImg = resolveProxyImage(spec.ProxyImage)
+		if proxyImg != img {
+			if err := d.ensureImage(ctx, proxyImg); err != nil {
+				return driver.Handle{}, err
+			}
+		}
+	}
 	if err := d.ensureNetwork(ctx, netName, name, withProxy); err != nil {
 		return driver.Handle{}, err
 	}
@@ -144,7 +153,7 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 			_ = d.cli.NetworkRemove(ctx, netName)
 			return driver.Handle{}, err
 		}
-		if err := d.createProxySidecar(ctx, name, netName, img, spec.ProxyBin, spec.PolicyPath, port, caVol, spec.ProxyEnv); err != nil {
+		if err := d.createProxySidecar(ctx, name, netName, proxyImg, spec.ProxyBin, spec.PolicyPath, port, caVol, spec.ProxyEnv, spec.PidsLimit); err != nil {
 			_ = d.cli.VolumeRemove(ctx, caVol, true)
 			_ = d.cli.NetworkRemove(ctx, netName)
 			return driver.Handle{}, err
@@ -283,6 +292,10 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
 		ExtraHosts:  append([]string{}, spec.ExtraHosts...),
+		LogConfig:   sandboxLogConfig(),
+		Resources: container.Resources{
+			PidsLimit: resolvePidsLimit(spec.PidsLimit),
+		},
 	}
 	if reqs := DeviceRequestsForGPU(spec); len(reqs) > 0 {
 		host.DeviceRequests = reqs
@@ -1074,7 +1087,7 @@ func (d *Driver) ensureNetwork(ctx context.Context, netName, sandboxName string,
 	return nil
 }
 
-func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, binPath, policyPath string, port int, caVol string, proxyEnv []string) error {
+func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, binPath, policyPath string, port int, caVol string, proxyEnv []string, pidsLimit int64) error {
 	if _, err := os.Stat(binPath); err != nil {
 		return fmt.Errorf("docker proxy bin: %w", err)
 	}
@@ -1128,6 +1141,10 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 	host := &container.HostConfig{
 		Binds:      binds,
 		ExtraHosts: HostGatewayExtraHosts(),
+		LogConfig:  sandboxLogConfig(),
+		Resources: container.Resources{
+			PidsLimit: resolvePidsLimit(pidsLimit),
+		},
 	}
 	networking := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{

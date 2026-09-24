@@ -55,8 +55,13 @@ type Spec struct {
 	GPUCount   int      // reserved; CDI list takes precedence in MVP
 	CDIDevices []string // e.g. nvidia.com/gpu=0
 
-	CPU          float64 // NanoCPUs = CPU * 1e9 when > 0
-	MemoryBytes  int64   // Docker Memory limit when > 0
+	CPU         float64 // NanoCPUs = CPU * 1e9 when > 0
+	MemoryBytes int64   // Docker Memory limit when > 0
+	// PidsLimit is Docker PIDs cgroup limit. 0 → driver default (2048 / WHALESHELL_SANDBOX_PIDS_LIMIT);
+	// -1 → unlimited; >0 → explicit.
+	PidsLimit int64
+	// ProxyImage overrides the slim egress sidecar base (default debian:bookworm-slim).
+	ProxyImage   string
 	PublishPorts []PortPublish
 	// DriverConfigJSON is opaque driver-specific JSON (recorded as label; Docker ignores for now).
 	DriverConfigJSON string
