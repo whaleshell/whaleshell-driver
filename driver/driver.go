@@ -3,6 +3,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/whaleshell/whaleshell-core"
@@ -45,7 +46,9 @@ type Spec struct {
 	// PersistVolume mounts named volume whaleshell-data-<name> at defaults.GuestData (retained across stop/start).
 	PersistVolume bool
 
-	// EnableSSH publishes loopback to defaults.GuestSSHPort and expects /whaleshell/whaleshell-sshd (linux binary).
+	// EnableSSH mounts whaleshell-sshd and shares its root-only Unix socket
+	// (defaults.GuestSSHSocket) with the proxy sidecar, which relays it to the
+	// gateway. Nothing is published on the host; requires ProxyBin.
 	EnableSSH bool
 	SSHBin    string // host path to linux whaleshell-sshd
 
@@ -116,6 +119,10 @@ type ComputeDriver interface {
 	Logs(ctx context.Context, id core.ID, follow bool, w io.Writer) error
 	CopyTo(ctx context.Context, id core.ID, srcHost, destPath string) error
 	CopyFrom(ctx context.Context, id core.ID, srcPath, destHost string) error
-	SSHPort(ctx context.Context, id core.ID) (int, error)
-	EnsureSSHDaemon(ctx context.Context, id core.ID, authorizedKey string) error
+	// EnsureSSHDaemon (re)starts the in-sandbox relay sshd; ErrSSHDisabled when
+	// the sandbox was created without SSH.
+	EnsureSSHDaemon(ctx context.Context, id core.ID) error
 }
+
+// ErrSSHDisabled reports a sandbox created without the SSH relay.
+var ErrSSHDisabled = errors.New("sandbox has no SSH relay (created without a proxy sidecar)")

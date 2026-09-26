@@ -44,10 +44,7 @@ func (d *Driver) CopyTo(context.Context, core.ID, string, string) error {
 func (d *Driver) CopyFrom(context.Context, core.ID, string, string) error {
 	return stub("CopyFrom")
 }
-func (d *Driver) SSHPort(context.Context, core.ID) (int, error) {
-	return 0, stub("SSHPort")
-}
-func (d *Driver) EnsureSSHDaemon(context.Context, core.ID, string) error {
+func (d *Driver) EnsureSSHDaemon(context.Context, core.ID) error {
 	return stub("EnsureSSHDaemon")
 }
 

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -44,6 +45,7 @@ const (
 	labelInit    = "whaleshell.init"
 	labelVolume  = "whaleshell.volume"
 	labelSSH     = "whaleshell.ssh"
+	labelSSHVol  = "whaleshell.ssh_volume"
 	labelPolicy  = "whaleshell.policy_path"
 	roleSandbox  = "sandbox"
 	roleProxy    = "proxy"
@@ -56,7 +58,6 @@ const (
 	guiSandboxImage   = defaults.ImageGUI
 	defaultProxy      = defaults.ProxyPort
 	defaultNoVNCPort  = defaults.NoVNCPort
-	guestSSHPort      = defaults.GuestSSHPort
 	guestDataPath     = defaults.GuestData
 	guestHomePath     = defaults.GuestHome
 	guestBinPath      = defaults.GuestBin
@@ -124,6 +125,20 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 	ctrName := "whaleshell-" + name
 	withProxy := strings.TrimSpace(spec.ProxyBin) != ""
 
+	var sshVol string
+	if spec.EnableSSH {
+		if !withProxy {
+			return driver.Handle{}, fmt.Errorf("docker ssh: the supervisor relay runs in the proxy sidecar; sandboxes without a proxy have no SSH/IDE access")
+		}
+		if strings.TrimSpace(spec.SSHBin) == "" {
+			return driver.Handle{}, fmt.Errorf("docker ssh: SSHBin required when EnableSSH")
+		}
+		if _, err := os.Stat(spec.SSHBin); err != nil {
+			return driver.Handle{}, fmt.Errorf("docker ssh bin: %w", err)
+		}
+		sshVol = "whaleshell-ssh-" + name
+	}
+
 	if err := d.ensureImage(ctx, img); err != nil {
 		return driver.Handle{}, err
 	}
@@ -153,8 +168,18 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 			_ = d.cli.NetworkRemove(ctx, netName)
 			return driver.Handle{}, err
 		}
-		if err := d.createProxySidecar(ctx, name, netName, proxyImg, spec.ProxyBin, spec.PolicyPath, port, caVol, spec.ProxyEnv, spec.PidsLimit); err != nil {
+		if sshVol != "" {
+			if err := d.ensureVolume(ctx, sshVol); err != nil {
+				_ = d.cli.VolumeRemove(ctx, caVol, true)
+				_ = d.cli.NetworkRemove(ctx, netName)
+				return driver.Handle{}, err
+			}
+		}
+		if err := d.createProxySidecar(ctx, name, netName, proxyImg, spec.ProxyBin, spec.PolicyPath, port, caVol, sshVol, spec.ProxyEnv, spec.PidsLimit); err != nil {
 			_ = d.cli.VolumeRemove(ctx, caVol, true)
+			if sshVol != "" {
+				_ = d.cli.VolumeRemove(ctx, sshVol, true)
+			}
 			_ = d.cli.NetworkRemove(ctx, netName)
 			return driver.Handle{}, err
 		}
@@ -218,16 +243,12 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		}
 		labels[labelInit] = "1"
 	}
-	if spec.EnableSSH {
-		if strings.TrimSpace(spec.SSHBin) == "" {
-			return driver.Handle{}, fmt.Errorf("docker ssh: SSHBin required when EnableSSH")
-		}
-		if _, err := os.Stat(spec.SSHBin); err != nil {
-			return driver.Handle{}, fmt.Errorf("docker ssh bin: %w", err)
-		}
-		binds = append(binds, spec.SSHBin+":/whaleshell/whaleshell-sshd:ro")
+	if sshVol != "" {
+		binds = append(binds,
+			spec.SSHBin+":"+defaults.GuestSSHD+":ro",
+			sshVol+":"+defaults.GuestSSHDir+":rw")
 		labels[labelSSH] = "1"
-		env = mergeEnv(env, []string{"WHALESHELL_SSH=1"})
+		labels[labelSSHVol] = sshVol
 	}
 
 	displayMode := strings.ToLower(strings.TrimSpace(spec.DisplayMode))
@@ -321,14 +342,6 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 		// Chromium needs shared memory; default 64MiB is too small in Docker.
 		host.ShmSize = 1 << 30 // 1 GiB
 	}
-	if spec.EnableSSH {
-		p := nat.Port(fmt.Sprintf("%d/tcp", guestSSHPort))
-		cfg.ExposedPorts[p] = struct{}{}
-		host.PortBindings[p] = []nat.PortBinding{{
-			HostIP:   "127.0.0.1",
-			HostPort: "0", // docker allocates
-		}}
-	}
 	for _, pub := range spec.PublishPorts {
 		if pub.Guest <= 0 || pub.Host <= 0 {
 			continue
@@ -357,6 +370,9 @@ func (d *Driver) Create(ctx context.Context, spec driver.Spec) (driver.Handle, e
 			_ = d.removeProxySidecar(ctx, name)
 		}
 		_ = d.cli.NetworkRemove(ctx, netName)
+		if sshVol != "" {
+			_ = d.cli.VolumeRemove(ctx, sshVol, true)
+		}
 		if len(host.DeviceRequests) > 0 {
 			return driver.Handle{}, fmt.Errorf("docker create %s: %w\nhint: enable NVIDIA CDI / Container Toolkit, or unset --gpu (see docs/exp/GPU.md)", ctrName, err)
 		}
@@ -378,6 +394,9 @@ func (d *Driver) Start(ctx context.Context, id core.ID) error {
 	if err := d.ensureGuestLayout(ctx, string(id)); err != nil {
 		// Non-fatal: PATH is also injected via container/exec env.
 		fmt.Fprintf(os.Stderr, "docker: guest layout: %v\n", err)
+	}
+	if err := d.EnsureSSHDaemon(ctx, id); err != nil && !errors.Is(err, driver.ErrSSHDisabled) {
+		fmt.Fprintf(os.Stderr, "docker: sshd: %v\n", err)
 	}
 	return nil
 }
@@ -621,6 +640,7 @@ func (d *Driver) Delete(ctx context.Context, id core.ID) error {
 	name := info.Config.Labels[labelName]
 	volName := info.Config.Labels[labelVolume]
 	caVol := info.Config.Labels["whaleshell.ca_volume"]
+	sshVol := info.Config.Labels[labelSSHVol]
 	_ = d.cli.ContainerRemove(ctx, string(id), container.RemoveOptions{Force: true})
 	if name != "" {
 		_ = d.removeProxySidecar(ctx, name)
@@ -633,6 +653,9 @@ func (d *Driver) Delete(ctx context.Context, id core.ID) error {
 	}
 	if caVol != "" {
 		_ = d.cli.VolumeRemove(ctx, caVol, true)
+	}
+	if sshVol != "" {
+		_ = d.cli.VolumeRemove(ctx, sshVol, true)
 	}
 	return nil
 }
@@ -1011,61 +1034,70 @@ func (d *Driver) CopyFrom(ctx context.Context, id core.ID, srcPath, destHost str
 	}
 }
 
-// SSHPort returns the host port bound to guest GuestSSHPort.
-func (d *Driver) SSHPort(ctx context.Context, id core.ID) (int, error) {
-	info, err := d.cli.ContainerInspect(ctx, string(id))
-	if err != nil {
-		return 0, err
-	}
-	if info.Config != nil && info.Config.Labels[labelSSH] != "1" {
-		return 0, fmt.Errorf("sandbox was not created with --ssh")
-	}
-	p := nat.Port(fmt.Sprintf("%d/tcp", guestSSHPort))
-	if info.NetworkSettings == nil {
-		return 0, fmt.Errorf("no network settings")
-	}
-	bindings := info.NetworkSettings.Ports[p]
-	if len(bindings) == 0 || bindings[0].HostPort == "" {
-		return 0, fmt.Errorf("ssh port not published")
-	}
-	port, err := strconv.Atoi(bindings[0].HostPort)
-	if err != nil {
-		return 0, err
-	}
-	return port, nil
-}
-
-// EnsureSSHDaemon starts /whaleshell/whaleshell-sshd inside the guest if labeled for SSH.
-func (d *Driver) EnsureSSHDaemon(ctx context.Context, id core.ID, authorizedKey string) error {
+// EnsureSSHDaemon starts whaleshell-sshd as root on the relay socket
+// (idempotent: sshd exits when a live daemon already owns the socket) and
+// waits until the socket exists. Returns driver.ErrSSHDisabled for sandboxes
+// created without SSH.
+func (d *Driver) EnsureSSHDaemon(ctx context.Context, id core.ID) error {
 	info, err := d.cli.ContainerInspect(ctx, string(id))
 	if err != nil {
 		return err
 	}
 	if info.Config == nil || info.Config.Labels[labelSSH] != "1" {
-		return fmt.Errorf("sandbox was not created with --ssh")
+		return driver.ErrSSHDisabled
 	}
-	tmp, err := os.MkdirTemp("", "whaleshell-ssh-*")
+	if info.State == nil || !info.State.Running {
+		return fmt.Errorf("sandbox is not running")
+	}
+	script := "exec " + defaults.GuestSSHD + " --socket " + defaults.GuestSSHSocket + " >>" + defaults.GuestSSHLog + " 2>&1"
+	execID, err := d.cli.ContainerExecCreate(ctx, string(id), container.ExecOptions{
+		Cmd:        []string{"/bin/sh", "-c", script},
+		User:       "0",
+		WorkingDir: "/",
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("sshd exec create: %w", err)
 	}
-	defer os.RemoveAll(tmp)
-	keyFile := filepath.Join(tmp, "authorized_keys")
-	if err := os.WriteFile(keyFile, []byte(authorizedKey+"\n"), 0o600); err != nil {
-		return err
+	if err := d.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{Detach: true}); err != nil {
+		return fmt.Errorf("sshd exec start: %w", err)
 	}
-	if err := d.CopyTo(ctx, id, keyFile, "/whaleshell/ssh/authorized_keys"); err != nil {
-		// ensure dir then retry via shell mkdir
-		_, _ = d.Exec(ctx, id, driver.ExecRequest{Argv: []string{"mkdir", "-p", "/whaleshell/ssh"}})
-		if err := d.CopyTo(ctx, id, keyFile, "/whaleshell/ssh/authorized_keys"); err != nil {
-			return err
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if code, err := d.rawExec(ctx, string(id), []string{"test", "-S", defaults.GuestSSHSocket}); err == nil && code == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	_, err = d.Exec(ctx, id, driver.ExecRequest{
-		Argv: []string{"sh", "-c", fmt.Sprintf(
-			`chmod 600 /whaleshell/ssh/authorized_keys 2>/dev/null; if ! pgrep -f /whaleshell/whaleshell-sshd >/dev/null 2>&1; then /whaleshell/whaleshell-sshd --listen 0.0.0.0:%d --authorized-keys /whaleshell/ssh/authorized_keys --host-key /whaleshell/ssh/host_ed25519 >/whaleshell/ssh/sshd.log 2>&1 & fi; sleep 0.3; pgrep -f /whaleshell/whaleshell-sshd >/dev/null`,
-			guestSSHPort)},
+	return fmt.Errorf("sshd socket %s did not appear (see %s)", defaults.GuestSSHSocket, defaults.GuestSSHLog)
+}
+
+// rawExec runs argv as root without the whaleshell-init wrapper.
+func (d *Driver) rawExec(ctx context.Context, id string, argv []string) (int, error) {
+	execID, err := d.cli.ContainerExecCreate(ctx, id, container.ExecOptions{
+		Cmd:          argv,
+		User:         "0",
+		AttachStdout: true,
+		AttachStderr: true,
+		WorkingDir:   "/",
 	})
-	return err
+	if err != nil {
+		return -1, err
+	}
+	attach, err := d.cli.ContainerExecAttach(ctx, execID.ID, container.ExecStartOptions{})
+	if err != nil {
+		return -1, err
+	}
+	_, _ = io.Copy(io.Discard, attach.Reader)
+	attach.Close()
+	insp, err := d.cli.ContainerExecInspect(ctx, execID.ID)
+	if err != nil {
+		return -1, err
+	}
+	return insp.ExitCode, nil
 }
 
 func (d *Driver) ensureNetwork(ctx context.Context, netName, sandboxName string, internal bool) error {
@@ -1087,7 +1119,7 @@ func (d *Driver) ensureNetwork(ctx context.Context, netName, sandboxName string,
 	return nil
 }
 
-func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, binPath, policyPath string, port int, caVol string, proxyEnv []string, pidsLimit int64) error {
+func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, binPath, policyPath string, port int, caVol, sshVol string, proxyEnv []string, pidsLimit int64) error {
 	if _, err := os.Stat(binPath); err != nil {
 		return fmt.Errorf("docker proxy bin: %w", err)
 	}
@@ -1113,6 +1145,12 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 		binds = append(binds, caVol+":/whaleshell/ca:rw")
 		cmd = append(cmd, "--ca-out", "/whaleshell/ca/ca.pem")
 	}
+	env := append([]string{}, proxyEnv...)
+	if sshVol != "" {
+		// Supervisor relay: the sidecar dials sshd on the shared root-only socket.
+		binds = append(binds, sshVol+":"+defaults.GuestSSHDir+":rw")
+		env = mergeEnv(env, []string{"WHALESHELL_SSH_SOCKET=" + defaults.GuestSSHSocket, "WHALESHELL_SANDBOX=" + name})
+	}
 
 	absPolicy := policyPath
 	if a, err := filepath.Abs(policyPath); err == nil {
@@ -1124,7 +1162,7 @@ func (d *Driver) createProxySidecar(ctx context.Context, name, netName, img, bin
 		// NOT wrap the sidecar. Entrypoint is the mounted linux CLI; Cmd is proxy args.
 		Entrypoint: []string{"/whaleshell/whaleshell"},
 		Cmd:        cmd,
-		Env:        append([]string{}, proxyEnv...),
+		Env:        env,
 		Labels: map[string]string{
 			labelSandbox: "1",
 			labelName:    name,
@@ -1289,6 +1327,13 @@ func (d *Driver) ensureImage(ctx context.Context, ref string) error {
 	}
 	low := strings.ToLower(ref)
 	if low == localSandboxImage || low == guiSandboxImage || low == gpuSandboxImage || strings.HasPrefix(low, "whaleshell-sandbox:") {
+		remote, published := defaults.PublishedImage(low)
+		var pullErr error
+		if published && !strings.EqualFold(os.Getenv(defaults.EnvImagePull), "never") {
+			if pullErr = d.pullAs(ctx, remote, ref); pullErr == nil {
+				return nil
+			}
+		}
 		hint := "task runtime:image:cli"
 		switch {
 		case strings.Contains(low, "cursor"):
@@ -1302,7 +1347,13 @@ func (d *Driver) ensureImage(ctx context.Context, ref string) error {
 		case low == gpuSandboxImage || strings.Contains(low, "gpu"):
 			hint = "task runtime:image:gpu"
 		}
-		return fmt.Errorf("docker image %s not found locally; build with: %s (or: task images:pull)", ref, hint)
+		if pullErr != nil {
+			return fmt.Errorf("docker image %s not found locally and %w; build with: %s", ref, pullErr, hint)
+		}
+		if published {
+			return fmt.Errorf("docker image %s not found locally; build with: %s (or unset %s=never to pull %s)", ref, hint, defaults.EnvImagePull, remote)
+		}
+		return fmt.Errorf("docker image %s not found locally; build with: %s", ref, hint)
 	}
 	rc, err := d.cli.ImagePull(ctx, ref, image.PullOptions{})
 	if err != nil {
@@ -1310,6 +1361,22 @@ func (d *Driver) ensureImage(ctx context.Context, ref string) error {
 	}
 	defer rc.Close()
 	_, _ = io.Copy(io.Discard, rc)
+	return nil
+}
+
+// pullAs pulls a published image and tags it with the local name the rest of
+// the driver keys on (embedded init, GUI detection).
+func (d *Driver) pullAs(ctx context.Context, remote, local string) error {
+	fmt.Fprintf(os.Stderr, "docker: pulling %s (for %s)…\n", remote, local)
+	rc, err := d.cli.ImagePull(ctx, remote, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull %s failed: %w", remote, err)
+	}
+	_, _ = io.Copy(io.Discard, rc)
+	_ = rc.Close()
+	if err := d.cli.ImageTag(ctx, remote, local); err != nil {
+		return fmt.Errorf("pull %s failed: %w", remote, err)
+	}
 	return nil
 }
 
